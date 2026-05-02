@@ -195,9 +195,41 @@ export default function App() {
   const [capIn,   setCapIn]   = useState("");
   const [auth,    setAuth]    = useState({username:"",password:""});
   const [authErr, setAuthErr] = useState("");
+  const [user, setUser] = useState(null);
 
-  const sg = async k => { try { const r=await window.storage.get(k); return r?JSON.parse(r.value):null; } catch { return null; } };
-  const ss = async (k,v) => { try { await window.storage.set(k,JSON.stringify(v)); } catch {} };
+  // LOAD SESSION ON START
+useEffect(() => {
+  const init = async () => {
+    try {
+      const savedUser = await window.storage.get("session_user");
+      if (savedUser?.value) {
+        setUser(savedUser.value);
+        setScreen("dashboard");
+      }
+    } catch (e) {
+      console.log("No session");
+    }
+    setLoading(false);
+  };
+
+  init();
+}, []);
+
+
+  const sg = async (k) => {
+  try {
+    const r = localStorage.getItem(k);
+    return r ? JSON.parse(r) : null;
+  } catch {
+    return null;
+  }
+};
+
+const ss = async (k, v) => {
+  try {
+    localStorage.setItem(k, JSON.stringify(v));
+  } catch {}
+};
 
   const load = useCallback(async u => {
     const [p,s,c]=await Promise.all([sg(`pos_${u}`),sg(`snaps_${u}`),sg(`cap_${u}`)]);
@@ -218,20 +250,57 @@ export default function App() {
   };
 
   /* AUTH */
-  const doAuth = async isLogin => {
-    if(!auth.username||!auth.password){setAuthErr("Please fill all fields.");return;}
-    if(isLogin){
-      const d=await sg(`u_${auth.username}`);
-      if(!d){setAuthErr("User not found.");return;}
-      if(d.pw!==auth.password){setAuthErr("Incorrect password.");return;}
-    } else {
-      if(auth.password.length<4){setAuthErr("Password min 4 chars.");return;}
-      if(await sg(`u_${auth.username}`)){setAuthErr("Username taken.");return;}
-      await ss(`u_${auth.username}`,{pw:auth.password});
+  const doAuth = async (isLogin) => {
+  setAuthErr("");
+  await window.storage.set("session_user", auth.username);
+
+  if (!auth.username || !auth.password) {
+    setAuthErr("Please fill all fields.");
+    return;
+  }
+
+  const email = auth.username;
+
+  if (isLogin) {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password: auth.password,
+    });
+
+    if (error) {
+      setAuthErr(error.message);
+      return;
     }
-    setUser(auth.username); setScreen("dashboard"); setAuthErr("");
-  };
-  const logout = ()=>{setUser(null);setPos([]);setSnaps([]);setCap("");setAuth({username:"",password:""});setScreen("login");setTab("portfolio");};
+  } else {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password: auth.password,
+    });
+
+    if (error) {
+      setAuthErr(error.message);
+      return;
+    }
+
+    setAuthErr("Check your email to confirm your account.");
+    return;
+  }
+
+  const { data } = await supabase.auth.getUser();
+  setUser(data.user.email);
+  setScreen("dashboard");
+};
+  const logout = async () => {
+  setUser(null);
+  setPos([]);
+  setSnaps([]);
+  setCap("");
+  setAuth({ username: "", password: "" });
+  setScreen("login");
+  setTab("portfolio");
+
+  await window.storage.set("session_user", "");
+};
 
   /* POSITIONS */
   const addPos = async ()=>{
